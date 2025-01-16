@@ -1,0 +1,40 @@
+Source: pd-lua
+Priority: optional
+Maintainer: Debian Multimedia Maintainers <debian-multimedia@lists.debian.org>
+Uploaders:
+ IOhannes m zmölnig (Debian/GNU) <umlaeute@debian.org>,
+Build-Depends:
+ debhelper-compat (= 13),
+ devscripts,
+ dh-buildinfo,
+ dh-sequence-pd-lib-builder,
+ liblua5.4-dev,
+ pkg-config,
+Standards-Version: 4.6.2
+Section: sound
+Homepage: https://download.puredata.info/pdlua
+Vcs-Git: https://salsa.debian.org/multimedia-team/pd/pd-lua.git
+Vcs-Browser: https://salsa.debian.org/multimedia-team/pd/pd-lua
+Rules-Requires-Root: no
+
+Package: pd-lua
+Architecture: any
+Depends:
+ pd-libdir,
+ ${misc:Depends},
+ ${puredata:Depends},
+ ${shlibs:Depends},
+Recommends:
+ ${puredata:Recommends},
+Suggests:
+ ${puredata:Suggests},
+Description: Lua bindings for Pure Data
+ pd-lua adds a new loader to Pure Data (Pd), that allows one to load
+ objectclasses written in the popular Lua programming language.
+ .
+ Some programming problems are complicated to express in graphical
+ dataflow languages like Pd, requiring the user to ressort to objectclasses
+ written in more general purpose languages.
+ For those who do not want to use compiled languages like C/C++, this package
+ offers the possibility to write first-class objectclasses in the lightweight
+ programming language "Lua".

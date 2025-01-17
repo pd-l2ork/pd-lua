@@ -2,10 +2,7 @@ Source: pd-lua
 Priority: optional
 Maintainer: Debian Multimedia Maintainers <pkg-multimedia-maintainers@lists.alioth.debian.org>
 Uploaders: IOhannes m zmölnig (Debian/GNU) <umlaeute@debian.org>
-Build-Depends: cdbs (>= 0.4.91~),
- debhelper,
- dh-buildinfo,
- devscripts,
+Build-Depends: @cdbs@,
  pkg-config,
  liblua5.2-dev,
  puredata-dev | puredata

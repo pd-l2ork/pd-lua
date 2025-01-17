@@ -14,6 +14,8 @@ function tictoc:initialize(sel, atoms)
    return true
 end
 
+-- don't forget this, or else...
+
 function tictoc:finalize()
   self.clock:destruct()
 end

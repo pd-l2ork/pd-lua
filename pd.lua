@@ -31,10 +31,10 @@ pd._setrequirepath = function(path)
   pd._packagepath = package.path
   pd._packagecpath = package.cpath
   if (pd._iswindows) then
-    package.path = path .. "\\?.lua;" .. path .. "\\?\\init.lua;" .. package.path
+    package.path = path .. "\\?;" .. path .. "\\?.lua;" .. package.path
     package.cpath = path .. "\\?.dll;" .. package.cpath
   else
-    package.path = path .. "/?.lua;" .. path .. "/?/init.lua;" .. package.path
+    package.path = path .. "/?;" .. path .. "/?.lua;" .. package.path
     package.cpath = path .. "/?.so;" .. package.cpath
   end
 end
@@ -77,47 +77,6 @@ pd._dispatcher = function (object, inlet, sel, atoms)
   end
 end
 
-pd._dsp = function (object, samplerate, blocksize, inchans)
-  local obj = pd._objects[object]
-  if nil ~= obj and type(obj.dsp) == "function" then
-    pd._objects[object]:dsp(samplerate, blocksize, inchans)
-  end
-end
-
-pd._perform_dsp = function (object, ...)
-  local obj = pd._objects[object]
-  if nil ~= obj and type(obj.perform) == "function" then
-    return pd._objects[object]:perform(...)
-  end
-end
-
--- repaint method dispatcher
-pd._repaint = function (object)
-  local obj = pd._objects[object]
-  if nil ~= obj and type(obj.repaint) == "function" then
-    obj:repaint(0)
-  end
-end
-
--- mouse event dispatcher
-pd._mouseevent = function (object, x, y, event_type)
-  if nil ~= pd._objects[object] then
-    local obj = pd._objects[object]
-    if event_type == 0 and type(obj.mouse_down) == "function" then
-      obj:mouse_down(x, y)
-    end
-    if event_type == 1 and type(obj.mouse_up) == "function" then
-      obj:mouse_up(x, y)
-    end
-    if event_type == 2 and type(obj.mouse_move) == "function" then
-      obj:mouse_move(x, y)
-    end
-    if event_type == 3 and type(obj.mouse_drag) == "function" then
-      obj:mouse_drag(x, y)
-    end
-  end
-end
-
 -- clock method dispatcher
 pd._clockdispatch = function (c)
   if nil ~= pd._clocks[c] then
@@ -130,6 +89,13 @@ end
 pd._whoami = function (object)
   if nil ~= pd._objects[object] then
     return pd._objects[object]:whoami()
+  end
+end
+
+--class method dispatcher
+pd._get_class = function (object)
+  if nil ~= pd._objects[object] then
+    return pd._objects[object]:get_class()
   end
 end
 
@@ -153,12 +119,6 @@ function pd.Clock:register(object, method)
       self._target = object
       self._method = method
       pd._clocks[self._clock] = self
-      -- ag 20240906: record the clock in the target's _clocks table so that it
-      -- can be destroyed automatically with the object
-      if not object._clocks then
-        object._clocks = { }
-      end
-      object._clocks[self._clock] = self
       return self
     end
   end
@@ -166,29 +126,20 @@ function pd.Clock:register(object, method)
 end
 
 function pd.Clock:destruct()
-  -- ag 20240906: remove the clock from the target's _clocks table if any
-  if self._target and self._target._clocks then
-    --pd.post(string.format("%s: destroying clock %s", self._target._name, self._method))
-    self._target._clocks[self._clock] = nil
-  end
-  if self._clock then
-    pd._clocks[self._clock] = nil
-    pd._clockfree(self._clock)
-    self._clock = nil
-  end
+  pd._clocks[self._clock] = nil
+  pd._clockfree(self._clock)
+  self._clock = nil
 end
 
 function pd.Clock:dispatch()
-  if pd._objects[self._target] then
-    local m = self._target[self._method]
-    if type(m) == "function" then
-        return m(self._target)
-    else
-        self._target:error(
-        "no method for `" .. self._method ..
-        "' at clock of Lua object `" .. self._name .. "'"
-        )
-    end
+  local m = self._target[self._method]
+  if type(m) == "function" then
+    return m(self._target)
+  else
+    self._target:error(
+      "no method for `" .. self._method ..
+      "' at clock of Lua object `" .. self._name .. "'"
+    )
   end
 end
 
@@ -267,12 +218,6 @@ function pd.Receive:register(object, name, method)
       self._target = object
       self._method = method
       pd._receives[self._receive] = self
-      -- ag 20240906: record the receiver in the target's _receives table so
-      -- that it can be destroyed automatically with the object
-      if not object._receives then
-        object._receives = { }
-      end
-      object._receives[self._receive] = self
       return self
     end
   end
@@ -280,19 +225,12 @@ function pd.Receive:register(object, name, method)
 end
 
 function pd.Receive:destruct()
-  -- ag 20240906: remove the receiver from the target's _receives table if any
-  if self._target and self._target._receives then
-    --pd.post(string.format("%s: destroying receiver %s", self._target._name, self._method))
-    self._target._receives[self._receive] = nil
-  end
-  if self._receive then
-    pd._receives[self._receive] = nil
-    pd._receivefree(self._receive)
-    self._receive = nil
-    self._name = nil
-    self._target = nil
-    self._method = nil
-  end
+  pd._receives[self._receive] = nil
+  pd._receivefree(self._receive)
+  self._receive = nil
+  self._name = nil
+  self._target = nil
+  self._method = nil
 end
 
 function pd.Receive:dispatch(sel, atoms)
@@ -308,19 +246,8 @@ function pd.Class:register(name)
   -- Those trailing slashes keep piling up, thus we need to check whether
   -- pd._loadpath already has one. This is only a temporary kludge until a
   -- proper fix is deployed. -ag 2023-02-02
-  --[[
-     Oh well, it appears that the "temporary kludge" is here to stay, so
-     let's at least fix it up to preserve an empty _loadpath, which is what we
-     get with pdluax. Which makes sense, since pdluax's _scriptname will be an
-     absolute path. But then an empty _loadpath should stay empty so that
-     self._loadpath .. self._scriptname returns a proper path.
-
-     This whole code has been touched so many times during sebshader's quest
-     to get relative paths in object names right, that I don't really dare to
-     touch it anymore, but this much we can do. -ag 20240905
-  ]]
   local fullpath = string.sub(pd._loadpath, -1) == "/" and pd._loadpath or
-     pd._loadpath ~= "" and pd._loadpath .. '/' or ""
+     (pd._loadpath .. '/')
   local fullname = fullpath .. name
 
   if nil ~= pd._classes[fullname] then
@@ -338,7 +265,7 @@ function pd.Class:register(name)
   end
   pd._pathnames[regname] = fullname
   pd._classes[fullname] = self       -- record registration
-  self._class, self._class_gfx = pd._register(name)  -- register new class
+  self._class = pd._register(name)  -- register new class
   self._name = name
   self._loadpath = fullpath
   if name == "pdlua" then
@@ -350,57 +277,21 @@ function pd.Class:register(name)
 end
 
 function pd.Class:construct(sel, atoms)
-  self._object = pd._create(self._class, self._class_gfx)
+  self._object = pd._create(self._class)
   self.inlets = 0
   self.outlets = 0
   self._canvaspath = pd._canvaspath(self._object) .. "/"
-  if pdx then
-    pdx.reload(self)
-  end
   if self:initialize(sel, atoms) then
     pd._createinlets(self._object, self.inlets)
     pd._createoutlets(self._object, self.outlets)
-    if type(self.paint) == "function" then
-        pd._creategui(self._object)
-    end
     self:postinitialize()
     return self
   else
-    if pdx then
-      pdx.unreload(self)
-    end
     return nil
   end
 end
 
 function pd.Class:destruct()
-  -- ag 20240906: get rid of all clocks and receivers registered for us
-  if self._clocks then
-    local clocks = { }
-    -- since the destruct() method destructively updates our _clocks table,
-    -- record all registered clock objects in a new table
-    for _, c in pairs(self._clocks) do
-      table.insert(clocks, c)
-    end
-    -- now destroy them
-    for _, c in ipairs(clocks) do
-      c:destruct()
-    end
-    self._clocks = nil
-  end
-  if self._receives then
-    local receives = { }
-    -- since the destruct() method destructively updates our _receives table,
-    -- record all registered receivers in a new table
-    for _, r in pairs(self._receives) do
-      table.insert(receives, r)
-    end
-    -- now destroy them
-    for _, r in ipairs(receives) do
-      r:destruct()
-    end
-    self._receives = nil
-  end
   pd._objects[self] = nil
   self:finalize()
   pd._destroy(self._object)
@@ -449,78 +340,6 @@ function pd.Class:postinitialize() end
 
 function pd.Class:finalize() end
 
-function pd.Class:get_args()
-  return pd._get_args(self._object)
-end
-
-function pd.Class:set_args(args)
-  pd._set_args(self._object, args)
-end
-
-function pd.Class:canvas_realizedollar(s)
-  return pd._canvas_realizedollar(self._object, s)
-end
-
-function pd.Class:signal_setmultiout(n, channelcount)
-  pd._signal_setmultiout(self._object, n, channelcount)
-end
-
-function pd.Class:repaint(layer)
-  -- do some argument checking first
-  if type(layer) == "number" then
-    -- make sure that layer is a nonnegative integer
-    layer = math.max(0, math.floor(layer))
-  elseif layer then
-    self:error(string.format("repaint: invalid layer %s, must be number or nil", tostring(layer)))
-    return
-  end
-  if layer == nil or layer <= 1 then
-    if type(self.paint) == "function" then
-      local g = _gfx_internal.start_paint(self._object, 1);
-      if type(self.paint) == "function" and g ~= nil then
-        self:paint(g)
-        _gfx_internal.end_paint(g, 1)
-      end
-    end
-  end
-  if layer == nil or layer == 0 then
-    local i = 2
-    while true do
-      local paint_layer_method = "paint_layer_" .. tostring(i)
-      if type(self[paint_layer_method]) == "function" then
-        local g = _gfx_internal.start_paint(self._object, i)
-        if g ~= nil then
-          self[paint_layer_method](self, g)
-          _gfx_internal.end_paint(g, i)
-          i = i + 1
-        else
-          break
-        end
-      else
-        break -- Exit the loop when no more paint_layer_X methods are found
-      end
-    end
-  end
-  if layer ~= nil and layer >= 2 then
-    local paint_layer_method = "paint_layer_" .. tostring(layer)
-    if type(self[paint_layer_method]) == "function" then
-      local g = _gfx_internal.start_paint(self._object, layer)
-      if g ~= nil then
-        self[paint_layer_method](self, g)
-        _gfx_internal.end_paint(g, layer)
-      end
-    end
-  end
-end
-
-function pd.Class:get_size()
-  return _gfx_internal.get_size(self._object)
-end
-
-function pd.Class:set_size(width, height)
-  return _gfx_internal.set_size(self._object, width, height)
-end
-
 function pd.Class:dofilex(file)
   -- in case of register being called, make sure
   -- classes in other paths aren't getting affected
@@ -558,10 +377,7 @@ function pd.Class:whoami()
 end
 
 function pd.Class:get_class() -- accessor for t_class*
-  -- ag 20240905: this is now implemented on the C side (you probably
-  -- shouldn't use this any more, we only keep this here for backward
-  -- compatibility)
-  return pd._get_class(self) or nil
+  return self._class or nil
 end
 
 local lua = pd.Class:new():register("pdlua")  -- global controls (the [pdlua] object only)
@@ -594,7 +410,7 @@ function luax:initialize(sel, atoms)          -- motivation: pd-list 2007-09-23
     end
     self._scriptname = pathname .. '/' .. basename(atoms[1]) .. ".pd_luax" -- mrpeach 20120201
     local atomstail = { }          -- munge for better lua<->luax compatibility
-    for i,_ in ipairs(atoms) do
+    for i,_ in ipairs(atoms) do                  
       if i > 1 then
         atomstail[i-1] = atoms[i]
       end
@@ -604,32 +420,5 @@ function luax:initialize(sel, atoms)          -- motivation: pd-list 2007-09-23
     return false   -- error message already output by dofile()
   end
 end
-
--- convenience creation functions for classes, arrays, clocks, receivers
-
-function pd.class(...)
-   return pd.Class:new():register(...)
-end
-
-function pd.table(...)
-   return pd.Table:new():sync(...)
-end
-
-function pd.clock(...)
-   return pd.Clock:new():register(...)
-end
-
-function pd.receive(...)
-   return pd.Receive:new():register(...)
-end
-
--- constants used in the signal and graphics API
-DATA = 0
-SIGNAL = 1
-Colors = {background = 0, foreground = 1, outline = 2}
-
--- pre-load pdx.lua (advanced live coding support); if you don't want this,
--- just comment out the line below
-pdx = require 'pdx'
 
 -- fin pd.lua
